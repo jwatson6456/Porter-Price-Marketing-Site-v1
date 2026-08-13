@@ -1,9 +1,8 @@
 name: Update NVDA price
 on:
   schedule:
-    # ~every 15 min during US market hours (times are UTC; nudge the hour range ±1 for DST)
     - cron: '*/15 13-21 * * 1-5'
-  workflow_dispatch: {}      # lets you run it manually from the Actions tab
+  workflow_dispatch: {}
 jobs:
   price:
     runs-on: ubuntu-latest
@@ -16,16 +15,11 @@ jobs:
           FISCAL_API_KEY: ${{ secrets.FISCAL_API_KEY }}
         run: |
           resp=$(curl -s "https://api.fiscal.ai/v1/company/stock-prices/intraday?companyKey=NASDAQ_NVDA&apiKey=$FISCAL_API_KEY")
-          echo "Raw response (first 500 chars): ${resp:0:500}"
-          price=$(printf '%s' "$resp" | jq -r '
-            def pick: (.price // .close // .last // .value // .c // .adjClose // empty);
-            (if type=="array" then .[-1]
-             elif (type=="object" and has("data")   and (.data|type)=="array")   then .data[-1]
-             elif (type=="object" and has("data"))   then .data
-             elif (type=="object" and has("prices") and (.prices|type)=="array") then .prices[-1]
-             elif (type=="object" and has("prices")) then .prices
-             else . end) | pick
-          ' 2>/dev/null || true)
+          echo "Raw response (first 800 chars): ${resp:0:800}"
+          arr=$(printf '%s' "$resp" | jq -c 'if type=="array" then . elif (type=="object" and (.data|type)=="array") then .data elif (type=="object" and (.prices|type)=="array") then .prices else [.] end' 2>/dev/null || echo "[]")
+          picked=$(printf '%s' "$arr" | jq -c 'max_by(.datetime // .date // .timestamp // .time // .t // "")' 2>/dev/null || echo "null")
+          echo "Newest point: $picked"
+          price=$(printf '%s' "$picked" | jq -r '(.price // .close // .last // .c // .value // .adjClose // empty)' 2>/dev/null || true)
           if [ -z "$price" ] || [ "$price" = "null" ]; then
             echo "Could not parse a price. Full raw response below (price data only, no key):"
             printf '%s\n' "$resp"
