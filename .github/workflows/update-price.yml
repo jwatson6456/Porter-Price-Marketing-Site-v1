@@ -1,0 +1,25 @@
+name: Update NVDA price
+on:
+  schedule:
+    - cron: '*/15 13-21 * * 1-5'   # ~every 15 min during US market hours (UTC; nudge ±1h for DST)
+  workflow_dispatch:
+jobs:
+  price:
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch NVDA price
+        env:
+          FISCAL_API_KEY: ${{ secrets.FISCAL_API_KEY }}
+        run: |
+          resp=$(curl -s "https://api.fiscal.ai/v1/company/stock-prices/intraday?companyKey=NASDAQ_NVDA&apiKey=$FISCAL_API_KEY")
+          price=$(echo "$resp" | jq -r '(.data // .prices // .) | (if type=="array" then last else . end) | (.price // .close // .last)')
+          if [ -z "$price" ] || [ "$price" = "null" ]; then echo "no price parsed. raw: $resp"; exit 1; fi
+          echo "{\"price\": $price, \"updated\": \"$(date -u +%FT%TZ)\"}" > price.json
+      - name: Commit if changed
+        run: |
+          git config user.name  "price-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add price.json
+          git diff --staged --quiet || (git commit -m "price update" && git push)
